@@ -13,6 +13,9 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# 添加文件大小检查
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+
 def extract_invoice_data(pdf):
     """提取PDF中的发票数据"""
     first_page_text = pdf.pages[0].extract_text()
@@ -188,9 +191,15 @@ def process_multiple_invoices(files, search_texts=None):
     duplicate_count = 0
     
     try:
-        temp_dir = tempfile.mkdtemp()
+        temp_dir = tempfile.mkdtemp(dir='/tmp')  # 使用/tmp目录
         
         for file in files:
+            if len(file.read()) > MAX_FILE_SIZE:
+                return {
+                    'success': False,
+                    'message': f'文件 {file.filename} 超过大小限制'
+                }
+            file.seek(0)  # 重置文件指针
             try:
                 # 使用原始文件名
                 original_filename = file.filename
@@ -267,6 +276,10 @@ def process_multiple_invoices(files, search_texts=None):
             'error': str(e),
             'message': '批量处理发票失败'
         }
+    finally:
+        # 确保清理临时文件
+        if temp_dir and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
 
 def create_excel_report(data_list, temp_dir):
     """创建包含多个发票数据的Excel报告"""

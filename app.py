@@ -3,13 +3,26 @@ from invoice_process import process_invoice, process_multiple_invoices
 import os
 import shutil
 import logging
+from flask_cors import CORS
 
 # 设置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+CORS(app)
 app.secret_key = 'your-secret-key'  # 添加secret key用于session
+
+# 添加文件大小限制
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
+
+# 添加错误处理
+@app.errorhandler(413)
+def too_large(e):
+    return jsonify({
+        'success': False,
+        'message': '文件太大'
+    }), 413
 
 @app.route('/')
 def index():
@@ -18,6 +31,16 @@ def index():
 @app.route('/process_invoice', methods=['POST'])
 def handle_invoice():
     try:
+        # 添加超时处理
+        from functools import partial
+        import signal
+        
+        def timeout_handler(signum, frame):
+            raise TimeoutError('处理超时')
+            
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(30)  # 30秒超时
+        
         # 获取上传的文件
         if 'invoices[]' not in request.files:
             return jsonify({'success': False, 'message': '没有上传文件'})
@@ -43,8 +66,14 @@ def handle_invoice():
             del result['excel_path']
             del result['temp_dir']
         
+        signal.alarm(0)  # 清除超时
         return jsonify(result)
         
+    except TimeoutError:
+        return jsonify({
+            'success': False,
+            'message': '处理时间过长，请减少文件数量或拆分处理'
+        })
     except Exception as e:
         logger.error(f"处理请求时发生错误: {str(e)}")
         return jsonify({
@@ -99,6 +128,10 @@ def download_excel(filename):
             'error': str(e),
             'message': '下载文件时发生错误'
         })
+
+@app.route('/health')
+def health_check():
+    return jsonify({'status': 'healthy'})
 
 if __name__ == '__main__':
     app.run(debug=True) 
