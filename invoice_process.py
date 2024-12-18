@@ -3,15 +3,11 @@ import shutil
 import pdfplumber
 import openpyxl
 from openpyxl import Workbook
+from openpyxl.cell.cell import TYPE_NUMERIC, TYPE_STRING
 from datetime import datetime
 import re
 import tempfile
 from werkzeug.utils import secure_filename
-import logging
-
-# 设置日志
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # 添加文件大小检查
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
@@ -44,9 +40,42 @@ def parse_data(first_page_text, full_text, top_right_text, filename, buyer_name)
         invoice_number = invoice_number_search.group(1) if invoice_number_search else ""
 
     # 查找金额
-    amounts = re.findall(r"[￥¥]\s{0,3}(\d+(?:\.\d{1,2})?)", first_page_text)
-    amounts_float = [float(amount) for amount in amounts]
-    total_amount = max(amounts_float) if amounts_float else "未找到金额"
+    # 打印原始文本，帮助调试
+    print(f"\n=== 文件 {filename} 的文本内容 ===")
+    print("First page text:")
+    print(first_page_text)
+    print("\nTop right text:")
+    print(top_right_text)
+    
+    # 1. 先尝试查找"价税合计"后面的金额
+    price_total_pattern = r"价税合计[¥￥·\s]*([\d,]+\.?\d*)"
+    price_match = re.search(price_total_pattern, first_page_text)
+    
+    # 打印所有找到的金额
+    all_amounts = re.findall(r"[￥¥·]\s{0,3}([\d,]+\.?\d*)", first_page_text)
+    print("\n找到的所有金额:")
+    for amount in all_amounts:
+        print(f"- {amount}")
+    
+    if price_match:
+        # 如果找到"价税合计"，直接使用这个金额
+        amount_str = price_match.group(1).replace(',', '')
+        total_amount = float(amount_str)
+        print(f"\n使用价税合计金额: {total_amount}")
+    else:
+        # 2. 如果没找到，查找所有带货币符号的金额，取最大值
+        amounts = re.findall(r"[￥¥·]\s{0,3}([\d,]+\.?\d*)", first_page_text)
+        if amounts:
+            # 移除逗号并转换为浮点数
+            amounts_float = [float(amount.replace(',', '')) for amount in amounts]
+            print("\n所有金额（浮点数）:")
+            for amt in amounts_float:
+                print(f"- {amt}")
+            total_amount = max(amounts_float)
+            print(f"\n使用最大金额: {total_amount}")
+        else:
+            print(f"\n未找到金额")
+            total_amount = 0.0
 
     # 查找日期
     date_search = re.search(r"(\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日)", first_page_text + top_right_text)
@@ -72,41 +101,70 @@ def parse_data(first_page_text, full_text, top_right_text, filename, buyer_name)
         "invoice_code": invoice_code,
         "invoice_number": invoice_number,
         "items": simplified_item_names,
-        "total_amount": str(total_amount),
+        "total_amount": total_amount,
         "invoice_date": invoice_date,
         "buyer_name": buyer_name,
         "seller_name": seller_name
     }
 
-def create_excel_report(data, temp_dir):
-    """
-    创建Excel报告
-    
-    Args:
-        data: 发票数据字典
-        temp_dir: 临时目录路径
-        
-    Returns:
-        str: Excel文件路径
-    """
+def create_excel_report(data_list, temp_dir):
+    """创建包含多个发票数据的Excel报告"""
     workbook = Workbook()
     sheet = workbook.active
     headers = ["文件名", "发票代码", "发票号码", "项目信息", "价税合计", "发票日期", "购买方名称", "销售方名称"]
     sheet.append(headers)
     
-    # 添加数据行
-    row_data = [
-        data["filename"],
-        data["invoice_code"],
-        data["invoice_number"],
-        data["items"],
-        data["total_amount"],
-        data["invoice_date"],
-        data["buyer_name"],
-        data["seller_name"]
-    ]
-    sheet.append(row_data)
-
+    # 设置列宽
+    column_widths = [30, 15, 15, 40, 15, 20, 40, 40]
+    for i, width in enumerate(column_widths, 1):
+        sheet.column_dimensions[chr(64 + i)].width = width
+    
+    # 添加所有发票数据
+    for data in data_list:
+        # 处理价税合计，确保是数字
+        try:
+            if isinstance(data["total_amount"], (int, float)):
+                total_amount = float(data["total_amount"])
+            else:
+                amount_str = str(data["total_amount"])
+                amount_str = ''.join(c for c in amount_str if c.isdigit() or c == '.')
+                total_amount = float(amount_str)
+        except (ValueError, TypeError):
+            total_amount = 0.0
+        
+        # 创建行数据
+        row_data = [
+            data["filename"],
+            data["invoice_code"],
+            data["invoice_number"],
+            data["items"],
+            f"={total_amount}",  # 使用公式强制转换为数字
+            data["invoice_date"],
+            data["buyer_name"],
+            data["seller_name"]
+        ]
+        
+        # 添加行并设置格式
+        sheet.append(row_data)
+        current_row = sheet.max_row
+        
+        # 设置发票号码为文本
+        invoice_cell = sheet.cell(current_row, 3)
+        invoice_cell.data_type = TYPE_STRING
+        invoice_cell.number_format = '@'
+        
+        # 设置价税合计为数字
+        amount_cell = sheet.cell(current_row, 5)
+        amount_cell.number_format = '#,##0.00'
+    
+    # 设置表头样式
+    header_font = openpyxl.styles.Font(bold=True)
+    header_fill = openpyxl.styles.PatternFill(start_color="CCCCCC", end_color="CCCCCC", fill_type="solid")
+    
+    for cell in sheet[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+    
     # 保存到临时目录
     excel_filename = f"Invoice_Data_{datetime.now().strftime('%Y%m%d%H%M%S')}.xlsx"
     excel_path = os.path.join(temp_dir, excel_filename)
@@ -125,8 +183,6 @@ def process_invoice(file_storage, search_texts=None):
         filename = secure_filename(file_storage.filename)
         pdf_path = os.path.join(temp_dir, filename)
         file_storage.save(pdf_path)
-        
-        logger.info(f"文件已保存到临时目录: {pdf_path}")
         
         # 处理PDF文件
         with pdfplumber.open(pdf_path) as pdf:
@@ -164,7 +220,6 @@ def process_invoice(file_storage, search_texts=None):
         }
         
     except Exception as e:
-        logger.error(f"处理发票时发生错误: {str(e)}")
         # 清理文件
         try:
             if pdf_path and os.path.exists(pdf_path):
@@ -175,7 +230,7 @@ def process_invoice(file_storage, search_texts=None):
                     os.remove(os.path.join(temp_dir, file))
                 os.rmdir(temp_dir)
         except Exception as cleanup_error:
-            logger.error(f"清理文件时发生错误: {str(cleanup_error)}")
+            pass
             
         return {
             'success': False,
@@ -189,6 +244,9 @@ def process_multiple_invoices(files, search_texts=None):
     processed_invoices = set()  # 用于存储已处理的发票代码和号码组合
     results = []
     duplicate_count = 0
+    processed_filenames = []    # 记录处理的文件名
+    skipped_filenames = []      # 记录跳过的文件名
+    duplicate_filenames = []    # 新增：记录重复的文件名
     
     try:
         # 确保使用/tmp目录
@@ -211,8 +269,6 @@ def process_multiple_invoices(files, search_texts=None):
                 pdf_path = os.path.join(temp_dir, safe_filename)
                 file.save(pdf_path)
                 
-                logger.info(f"处理文件: {original_filename}")
-                
                 # 处理PDF文件
                 with pdfplumber.open(pdf_path) as pdf:
                     first_page_text, full_text, top_right_text = extract_invoice_data(pdf)
@@ -221,29 +277,28 @@ def process_multiple_invoices(files, search_texts=None):
                     if search_texts:
                         matching_texts = [text for text in search_texts if text in full_text]
                         if not matching_texts:
-                            continue  # 跳过不匹配的文件
-                        buyer_name = matching_texts[0]
-                    else:
-                        buyer_name = ""
+                            skipped_filenames.append(original_filename)  # 记录不匹配的文件
+                            continue
                     
                     # 解析发票数据，传入原始文件名
-                    result = parse_data(first_page_text, full_text, top_right_text, original_filename, buyer_name)
+                    result = parse_data(first_page_text, full_text, top_right_text, original_filename, "")
                     
-                    # 检查是否为重复发票
+                    # 检查重复发票
                     invoice_key = (result['invoice_code'], result['invoice_number'])
                     if invoice_key in processed_invoices:
                         duplicate_count += 1
-                        logger.info(f"发现重复发票: {original_filename}")
+                        duplicate_filenames.append(original_filename)  # 记录重复文件名
                         continue
                     
                     processed_invoices.add(invoice_key)
                     results.append(result)
+                    processed_filenames.append(original_filename)
                 
                 # 删除处理完的PDF文件
                 os.remove(pdf_path)
                 
             except Exception as e:
-                logger.error(f"处理文件 {original_filename} 时发生错误: {str(e)}")
+                skipped_filenames.append(original_filename)  # 记录处理失败的文件
                 continue
         
         if not results:
@@ -259,23 +314,35 @@ def process_multiple_invoices(files, search_texts=None):
         with open(excel_path, 'rb') as f:
             excel_content = f.read()
         
+        # 在process_multiple_invoices函数中添加调试信息
+        print("\n=== 处理结果 ===")
+        print(f"总文件数: {len(files)}")
+        print(f"成功处理: {len(processed_filenames)}")
+        print(f"重复文件: {len(duplicate_filenames)}")
+        print("\n重复的文件:")
+        for name in duplicate_filenames:
+            print(f"- {name}")
+        
         return {
             'success': True,
             'total_processed': len(results),
             'duplicate_count': duplicate_count,
             'excel_filename': excel_filename,
-            'excel_content': excel_content,  # 直接返回文件内容
+            'excel_content': excel_content,
+            'processed_filenames': processed_filenames,
+            'skipped_filenames': skipped_filenames,
+            'duplicate_filenames': duplicate_filenames,  # 新增
+            'total_files': len(files),
             'message': '发票处理成功'
         }
         
     except Exception as e:
-        logger.error(f"批量处理发票时发生错误: {str(e)}")
         # 清理文件
         try:
             if temp_dir and os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir)
         except Exception as cleanup_error:
-            logger.error(f"清理文件时发生错误: {str(cleanup_error)}")
+            pass
             
         return {
             'success': False,
@@ -288,31 +355,4 @@ def process_multiple_invoices(files, search_texts=None):
             try:
                 shutil.rmtree(temp_dir)
             except Exception as e:
-                logger.error(f"清理临时文件失败: {str(e)}")
-
-def create_excel_report(data_list, temp_dir):
-    """创建包含多个发票数据的Excel报告"""
-    workbook = Workbook()
-    sheet = workbook.active
-    headers = ["文件名", "发票代码", "发票号码", "项目信息", "价税合计", "发票日期", "购买方名称", "销售方名称"]
-    sheet.append(headers)
-    
-    # 添加所有发票数据
-    for data in data_list:
-        row_data = [
-            data["filename"],
-            data["invoice_code"],
-            data["invoice_number"],
-            data["items"],
-            data["total_amount"],
-            data["invoice_date"],
-            data["buyer_name"],
-            data["seller_name"]
-        ]
-        sheet.append(row_data)
-
-    # 保存到临时目录
-    excel_filename = f"Invoice_Data_{datetime.now().strftime('%Y%m%d%H%M%S')}.xlsx"
-    excel_path = os.path.join(temp_dir, excel_filename)
-    workbook.save(excel_path)
-    return excel_path, excel_filename
+                pass

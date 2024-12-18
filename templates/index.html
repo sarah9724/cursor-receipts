@@ -72,33 +72,67 @@
                     body: formData
                 });
                 
-                // 检查响应类型
-                const contentType = response.headers.get('content-type');
+                progressDiv.style.display = 'none';
                 
-                if (contentType && contentType.includes('application/json')) {
-                    // 处理JSON响应（错误情况）
+                if (response.ok) {
                     const result = await response.json();
-                    progressDiv.style.display = 'none';
+                    if (result.success) {
+                        console.log('处理结果:', result);
+                        let resultHtml = `
+                            <h3>处理结果：</h3>
+                            <p>总文件数：${result.total_files}</p>
+                            <p>成功处理：${result.processed_files}</p>
+                            <p>重复文件：${result.duplicate_files}</p>
+                        `;
+                        
+                        if (result.processed_filenames.length > 0) {
+                            resultHtml += `
+                                <h4>成功处理的文件：</h4>
+                                <ul>
+                                    ${result.processed_filenames.map((name, index) => 
+                                        `<li>${index + 1}. ${name}</li>`
+                                    ).join('')}
+                                </ul>
+                            `;
+                        }
+                        
+                        console.log('重复文件:', result.duplicate_filenames);
+                        if (result.duplicate_filenames && result.duplicate_filenames.length > 0) {
+                            resultHtml += `
+                                <h4>重复的文件：</h4>
+                                <ul>
+                                    ${result.duplicate_filenames.map((name, index) => 
+                                        `<li>${index + 1}. ${name}</li>`
+                                    ).join('')}
+                                </ul>
+                            `;
+                        }
+                        
+                        resultHtml += '<p>文件已开始下载</p>';
+                        resultDiv.innerHTML = resultHtml;
+                        
+                        // 处理文件下载
+                        const binaryStr = new Uint8Array(result.excel_content.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+                        const blob = new Blob([binaryStr], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = result.excel_filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+                    } else {
+                        resultDiv.innerHTML = `
+                            <h3>处理失败：</h3>
+                            <p>${result.message}</p>
+                        `;
+                    }
+                } else {
+                    const result = await response.json();
                     resultDiv.innerHTML = `
                         <h3>处理失败：</h3>
                         <p>${result.message}</p>
-                    `;
-                } else {
-                    // 处理文件下载
-                    const blob = await response.blob();
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = response.headers.get('content-disposition')?.split('filename=')[1] || 'Invoice_Data.xlsx';
-                    document.body.appendChild(a);
-                    a.click();
-                    window.URL.revokeObjectURL(url);
-                    document.body.removeChild(a);
-                    
-                    progressDiv.style.display = 'none';
-                    resultDiv.innerHTML = `
-                        <h3>处理成功：</h3>
-                        <p>文件已开始下载</p>
                     `;
                 }
             } catch (error) {

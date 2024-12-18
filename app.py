@@ -3,6 +3,7 @@ from invoice_process import process_invoice, process_multiple_invoices
 import os
 import logging
 import io
+import base64
 
 # 设置日志
 logging.basicConfig(level=logging.INFO)
@@ -32,21 +33,43 @@ def handle_invoice():
         search_texts = request.form.getlist('search_texts[]')
         search_texts = [text.strip() for text in search_texts if text.strip()]
         
-        result = process_multiple_invoices(files, search_texts)
+        print("\n=== 开始处理发票 ===")
+        print(f"处理文件数量: {len(files)}")
+        print(f"搜索文本: {search_texts}")
         
-        if result['success']:
-            # 直接返回文件内容
-            return send_file(
-                io.BytesIO(result['excel_content']),
-                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                as_attachment=True,
-                download_name=result['excel_filename']
-            )
-        
-        return jsonify(result)
-        
+        try:
+            result = process_multiple_invoices(files, search_texts)
+            
+            if result['success']:
+                # 创建一个包含所有信息的JSON响应
+                response_data = {
+                    'success': True,
+                    'total_files': len(files),
+                    'processed_files': result['total_processed'],
+                    'duplicate_files': result.get('duplicate_count', 0),
+                    'processed_filenames': result.get('processed_filenames', []),
+                    'duplicate_filenames': result.get('duplicate_filenames', []),
+                    'excel_content': result['excel_content'].hex(),  # 将二进制内容转换为hex字符串
+                    'excel_filename': result['excel_filename']
+                }
+                return jsonify(response_data)
+            else:
+                return jsonify(result)
+            
+        except Exception as process_error:
+            print(f"\n处理发票时发生错误: {str(process_error)}")
+            import traceback
+            print(f"错误详情:\n{traceback.format_exc()}")
+            return jsonify({
+                'success': False,
+                'error': str(process_error),
+                'message': '处理发票时发生错误'
+            })
+            
     except Exception as e:
-        logger.error(f"处理请求时发生错误: {str(e)}")
+        print(f"\n请求处理错误: {str(e)}")
+        import traceback
+        print(f"错误详情:\n{traceback.format_exc()}")
         return jsonify({
             'success': False,
             'error': str(e),
