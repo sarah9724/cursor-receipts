@@ -22,7 +22,6 @@ def index():
 @app.route('/process_invoice', methods=['POST'])
 def handle_invoice():
     try:
-        # 获取上传的文件
         if 'invoices[]' not in request.files:
             return jsonify({'success': False, 'message': '没有上传文件'})
         
@@ -30,21 +29,19 @@ def handle_invoice():
         if not files or files[0].filename == '':
             return jsonify({'success': False, 'message': '没有选择文件'})
             
-        # 获取搜索文本
         search_texts = request.form.getlist('search_texts[]')
         search_texts = [text.strip() for text in search_texts if text.strip()]
         
-        # 处理发票
         result = process_multiple_invoices(files, search_texts)
         
         if result['success']:
-            # 将Excel内容存储在session中
-            session['excel_data'] = {
-                'content': result['excel_content'],
-                'filename': result['excel_filename']
-            }
-            # 删除不需要返回给前端的信息
-            del result['excel_content']
+            # 直接返回文件内容
+            return send_file(
+                io.BytesIO(result['excel_content']),
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                as_attachment=True,
+                download_name=result['excel_filename']
+            )
         
         return jsonify(result)
         

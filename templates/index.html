@@ -63,36 +63,42 @@
             const resultDiv = document.getElementById('result');
             const progressDiv = document.getElementById('progress');
             
-            // 显示进度提示
             progressDiv.style.display = 'block';
             resultDiv.innerHTML = '';
             
             try {
-                const result = await processWithRetry(formData);
+                const response = await fetch('/process_invoice', {
+                    method: 'POST',
+                    body: formData
+                });
                 
-                // 隐藏进度提示
-                progressDiv.style.display = 'none';
+                // 检查响应类型
+                const contentType = response.headers.get('content-type');
                 
-                if (result.success) {
-                    let resultHtml = `
-                        <h3>处理结果：</h3>
-                        <p>成功处理 ${result.total_processed} 个文件</p>
-                        <p>发现 ${result.duplicate_count} 个重复发票</p>
-                    `;
-                    
-                    if (result.excel_filename) {
-                        resultHtml += `
-                            <a href="/download_excel/${result.excel_filename}" class="download-button">
-                                下载Excel报告
-                            </a>
-                        `;
-                    }
-                    
-                    resultDiv.innerHTML = resultHtml;
-                } else {
+                if (contentType && contentType.includes('application/json')) {
+                    // 处理JSON响应（错误情况）
+                    const result = await response.json();
+                    progressDiv.style.display = 'none';
                     resultDiv.innerHTML = `
                         <h3>处理失败：</h3>
                         <p>${result.message}</p>
+                    `;
+                } else {
+                    // 处理文件下载
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = response.headers.get('content-disposition')?.split('filename=')[1] || 'Invoice_Data.xlsx';
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                    
+                    progressDiv.style.display = 'none';
+                    resultDiv.innerHTML = `
+                        <h3>处理成功：</h3>
+                        <p>文件已开始下载</p>
                     `;
                 }
             } catch (error) {
@@ -103,22 +109,6 @@
                 `;
             }
         };
-
-        // 添加错误重试逻辑
-        async function processWithRetry(formData, maxRetries = 3) {
-            for (let i = 0; i < maxRetries; i++) {
-                try {
-                    const response = await fetch('/process_invoice', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    return await response.json();
-                } catch (error) {
-                    if (i === maxRetries - 1) throw error;
-                    await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
-                }
-            }
-        }
     </script>
 </body>
 </html> 
