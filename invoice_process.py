@@ -193,6 +193,10 @@ def process_multiple_invoices(files, search_texts=None):
     try:
         temp_dir = tempfile.mkdtemp(dir='/tmp')  # 使用/tmp目录
         
+        # 添加错误处理
+        if not os.path.exists(temp_dir):
+            os.makedirs(temp_dir)
+            
         for file in files:
             if len(file.read()) > MAX_FILE_SIZE:
                 return {
@@ -279,7 +283,10 @@ def process_multiple_invoices(files, search_texts=None):
     finally:
         # 确保清理临时文件
         if temp_dir and os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir)
+            try:
+                shutil.rmtree(temp_dir)
+            except Exception as e:
+                logger.error(f"清理临时文件失败: {str(e)}")
 
 def create_excel_report(data_list, temp_dir):
     """创建包含多个发票数据的Excel报告"""
