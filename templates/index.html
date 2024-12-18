@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>发票处理系统</title>
+    <style>
+        .search-text {
+            margin: 5px 0;
+        }
+        .result-container {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+        }
+        .download-button {
+            margin-top: 10px;
+            padding: 5px 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        .download-button:hover {
+            background-color: #45a049;
+        }
+        .progress {
+            margin-top: 10px;
+            padding: 5px;
+            background-color: #f0f0f0;
+        }
+    </style>
+</head>
+<body>
+    <h1>发票处理系统</h1>
+    <form id="invoiceForm" action="/process_invoice" method="post" enctype="multipart/form-data">
+        <div>
+            <h3>搜索文本（可选）：</h3>
+            <div id="searchTexts">
+                <input type="text" name="search_texts[]" class="search-text" placeholder="输入搜索文本">
+                <input type="text" name="search_texts[]" class="search-text" placeholder="输入搜索文本">
+                <input type="text" name="search_texts[]" class="search-text" placeholder="输入搜索文本">
+                <input type="text" name="search_texts[]" class="search-text" placeholder="输入搜索文本">
+                <input type="text" name="search_texts[]" class="search-text" placeholder="输入搜索文本">
+            </div>
+        </div>
+        <div>
+            <h3>选择发票文件：</h3>
+            <input type="file" name="invoices[]" accept=".pdf" multiple required>
+        </div>
+        <button type="submit">处理发票</button>
+    </form>
+    <div id="progress" class="progress" style="display: none;">
+        正在处理文件...
+    </div>
+    <div id="result" class="result-container">
+        <!-- 这里显示处理结果 -->
+    </div>
+
+    <script>
+        document.getElementById('invoiceForm').onsubmit = async (e) => {
+            e.preventDefault();
+            
+            const formData = new FormData(e.target);
+            const resultDiv = document.getElementById('result');
+            const progressDiv = document.getElementById('progress');
+            
+            // 显示进度提示
+            progressDiv.style.display = 'block';
+            resultDiv.innerHTML = '';
+            
+            try {
+                const response = await fetch('/process_invoice', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                // 隐藏进度提示
+                progressDiv.style.display = 'none';
+                
+                if (result.success) {
+                    let resultHtml = `
+                        <h3>处理结果：</h3>
+                        <p>成功处理 ${result.total_processed} 个文件</p>
+                        <p>发现 ${result.duplicate_count} 个重复发票</p>
+                    `;
+                    
+                    if (result.excel_filename) {
+                        resultHtml += `
+                            <a href="/download_excel/${result.excel_filename}" class="download-button">
+                                下载Excel报告
+                            </a>
+                        `;
+                    }
+                    
+                    resultDiv.innerHTML = resultHtml;
+                } else {
+                    resultDiv.innerHTML = `
+                        <h3>处理失败：</h3>
+                        <p>${result.message}</p>
+                    `;
+                }
+            } catch (error) {
+                progressDiv.style.display = 'none';
+                resultDiv.innerHTML = `
+                    <h3>错误：</h3>
+                    <p>处理请求时发生错误</p>
+                `;
+            }
+        };
+    </script>
+</body>
+</html> 
