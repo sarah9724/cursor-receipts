@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, jsonify, send_file, session
 from invoice_process import process_invoice, process_multiple_invoices
 import os
 import logging
+import io
 
 # 设置日志
 logging.basicConfig(level=logging.INFO)
@@ -37,14 +38,13 @@ def handle_invoice():
         result = process_multiple_invoices(files, search_texts)
         
         if result['success']:
-            # 将临时文件信息存储在session中
-            session['temp_file_info'] = {
-                'excel_path': result['excel_path'],
-                'temp_dir': result['temp_dir']
+            # 将Excel内容存储在session中
+            session['excel_data'] = {
+                'content': result['excel_content'],
+                'filename': result['excel_filename']
             }
             # 删除不需要返回给前端的信息
-            del result['excel_path']
-            del result['temp_dir']
+            del result['excel_content']
         
         return jsonify(result)
         
@@ -63,36 +63,19 @@ def download_excel(filename):
         if not filename.startswith('Invoice_Data_') or not filename.endswith('.xlsx'):
             return jsonify({'success': False, 'message': '无效的文件名'})
         
-        # 从session中获取文件信息
-        file_info = session.get('temp_file_info')
-        if not file_info:
+        # 从session中获取文件数据
+        excel_data = session.get('excel_data')
+        if not excel_data:
             return jsonify({'success': False, 'message': '文件信息已过期'})
         
-        excel_path = file_info['excel_path']
-        temp_dir = file_info['temp_dir']
+        # 直接从session中获取文件内容
+        return send_file(
+            io.BytesIO(excel_data['content']),
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
         
-        if not os.path.exists(excel_path):
-            return jsonify({'success': False, 'message': '文件不存在'})
-        
-        # 发送文件
-        try:
-            return send_file(
-                excel_path,
-                as_attachment=True,
-                download_name=filename
-            )
-        finally:
-            # 下载完成后清理文件
-            try:
-                if os.path.exists(excel_path):
-                    os.remove(excel_path)
-                if os.path.exists(temp_dir):
-                    os.rmdir(temp_dir)
-                # 清理session
-                session.pop('temp_file_info', None)
-            except Exception as cleanup_error:
-                logger.error(f"清理文件时发生错误: {str(cleanup_error)}")
-                
     except Exception as e:
         logger.error(f"下载文件时发生错误: {str(e)}")
         return jsonify({

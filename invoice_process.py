@@ -191,9 +191,8 @@ def process_multiple_invoices(files, search_texts=None):
     duplicate_count = 0
     
     try:
-        temp_dir = tempfile.mkdtemp(dir='/tmp')  # 使用/tmp目录
-        
-        # 添加错误处理
+        # 确保使用/tmp目录
+        temp_dir = '/tmp'
         if not os.path.exists(temp_dir):
             os.makedirs(temp_dir)
             
@@ -256,13 +255,16 @@ def process_multiple_invoices(files, search_texts=None):
         # 生成Excel报告
         excel_path, excel_filename = create_excel_report(results, temp_dir)
         
+        # 读取Excel文件内容
+        with open(excel_path, 'rb') as f:
+            excel_content = f.read()
+        
         return {
             'success': True,
             'total_processed': len(results),
             'duplicate_count': duplicate_count,
             'excel_filename': excel_filename,
-            'excel_path': excel_path,
-            'temp_dir': temp_dir,
+            'excel_content': excel_content,  # 直接返回文件内容
             'message': '发票处理成功'
         }
         
