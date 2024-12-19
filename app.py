@@ -91,8 +91,8 @@ user_db = UserDB()
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        username = session.get('username')  # 改用username而不是phone
-        if not username:
+        phone = session.get('phone')  # 使用phone而不是username
+        if not phone or not user_db.is_registered(phone):
             return jsonify({
                 'success': False,
                 'message': '请先登录'
@@ -114,10 +114,10 @@ def index():
 @login_required
 def handle_invoice():
     try:
-        username = session.get('username')
+        phone = session.get('phone')  # 使用phone而不是username
         
         # 检查是否有免费次数
-        if user_db.use_free_chance(username):
+        if user_db.use_free_chance(phone):  # 使用phone而不是username
             # 有免费次数，直接处理
             pass
         else:
@@ -261,26 +261,34 @@ def verify_code():
     """验证码验证"""
     try:
         data = request.get_json()
+        print("\n=== 收到验证码验证请求 ===")
+        print(f"请求数据: {data}")
+        
         phone = data.get('phone')
         code = data.get('code')
-        password = data.get('password')  # 获取密码参数
+        password = data.get('password')
+        referred_by = data.get('referredBy')  # 注意这里是referredBy而不是referred_by
         
-        if not phone or not code or not password:  # 检查所有必需参数
+        print(f"手机号: {phone}")
+        print(f"验证码: {code}")
+        print(f"推荐人: {referred_by}")
+        
+        if not phone or not code or not password:
             return jsonify({
                 'success': False,
                 'message': '请输入手机号、验证码和密码'
             })
         
-        success, message = user_db.verify_code(phone, code, password)  # 传递密码参数
-        if success:
-            session['phone'] = phone  # 保存到session
-            
+        success, message = user_db.verify_code(phone, code, password, referred_by)
+        print(f"验证结果: success={success}, message={message}")
+        
         return jsonify({
             'success': success,
             'message': message
         })
         
     except Exception as e:
+        print(f"验证码验证失败: {str(e)}")
         return jsonify({
             'success': False,
             'message': str(e)
@@ -290,23 +298,23 @@ def verify_code():
 def check_auth():
     """检查用户是否已登录"""
     try:
-        username = session.get('username')  # 改用username
-        if not username:
+        phone = session.get('phone')  # 使用phone而不是username
+        if not phone:
             return jsonify({
                 'success': False,
                 'message': '未登录'
             })
             
         # 检查用户是否在数据库中
-        user_info = user_db.get_user_info(username)
+        user_info = user_db.get_user_info(phone)
         if user_info:
             return jsonify({
                 'success': True,
-                'username': username
+                'phone': phone
             })
         else:
             # 如果用户不在数据库中，清除session
-            session.pop('username', None)
+            session.pop('phone', None)
             return jsonify({
                 'success': False,
                 'message': '用户未注册'
@@ -333,18 +341,19 @@ def handle_login():
     """处理登录请求"""
     try:
         data = request.get_json()
-        username = data.get('username')
+        phone = data.get('phone')
         password = data.get('password')
         
-        if not username or not password:
+        if not phone or not password:
             return jsonify({
                 'success': False,
-                'message': '请输入用户名和密码'
+                'message': '请输入手机号和密码'
             })
         
-        success, message = user_db.login(username, password)
+        success, message = user_db.login(phone, password)
         if success:
-            session['username'] = username  # 使用username替代phone
+            session['phone'] = phone  # 保存到session
+            session.permanent = True  # 设置session持久化
             
         return jsonify({
             'success': success,
@@ -362,18 +371,24 @@ def handle_register():
     """处理注册请求"""
     try:
         data = request.get_json()
-        username = data.get('username')
+        phone = data.get('phone')
         password = data.get('password')
-        referred_by = data.get('referredBy')  # 获取推荐人用户名
+        referred_by = data.get('referredBy')  # 获取推荐人手机号
         
-        if not username or not password:
+        if not phone or not password:
             return jsonify({
                 'success': False,
-                'message': '请输入用户名和密码'
+                'message': '请输入手机号和密码'
+            })
+            
+        if not re.match(r'^1[3-9]\d{9}$', phone):
+            return jsonify({
+                'success': False,
+                'message': '请输入正确的手机号'
             })
         
         # 传入推荐人信息
-        success, message = user_db.register(username, password, referred_by)
+        success, message = user_db.register(phone, password, referred_by)
         return jsonify({
             'success': success,
             'message': message
@@ -389,14 +404,14 @@ def handle_register():
 def get_user_info():
     """获取用户信息"""
     try:
-        username = session.get('username')
-        if not username:
+        phone = session.get('phone')  # 使用phone而不是username
+        if not phone:
             return jsonify({
                 'success': False,
                 'message': '未登录'
             })
             
-        user_info = user_db.get_user_info(username)
+        user_info = user_db.get_user_info(phone)
         if user_info:
             return jsonify({
                 'success': True,

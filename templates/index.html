@@ -162,7 +162,7 @@
             <div id="loginForm" class="auth-form">
                 <h2>用户登录</h2>
                 <div class="input-group">
-                    <input type="text" id="loginUsername" placeholder="请输入用户名">
+                    <input type="tel" id="loginPhone" placeholder="请输入手机号" pattern="[0-9]{11}">
                 </div>
                 <div class="input-group">
                     <input type="password" id="loginPassword" placeholder="请输入密码">
@@ -176,7 +176,11 @@
             <div id="registerForm" class="auth-form" style="display: none;">
                 <h2>用户注册</h2>
                 <div class="input-group">
-                    <input type="text" id="username" placeholder="请输入用户名">
+                    <input type="tel" id="phone" placeholder="请输入手机号" pattern="[0-9]{11}">
+                    <button onclick="sendCode()">发送验证码</button>
+                </div>
+                <div class="input-group">
+                    <input type="text" id="verifyCode" placeholder="请输入验证码" maxlength="6">
                 </div>
                 <div class="input-group">
                     <input type="password" id="password" placeholder="请设置密码">
@@ -185,7 +189,7 @@
                     <input type="password" id="confirmPassword" placeholder="请确认密码">
                 </div>
                 <div class="input-group">
-                    <input type="text" id="referredBy" placeholder="推荐人用户名（选填）">
+                    <input type="tel" id="referredBy" placeholder="推荐人手机号（选填）" pattern="[0-9]{11}">
                 </div>
                 <div class="input-group">
                     <button onclick="register()" style="width: 100%">注册</button>
@@ -281,12 +285,20 @@
         }
 
         async function register() {
-            const username = document.getElementById('username').value;
+            const phone = document.getElementById('phone').value;
+            const code = document.getElementById('verifyCode').value;
             const password = document.getElementById('password').value.trim();
             const confirmPassword = document.getElementById('confirmPassword').value.trim();
             const referredBy = document.getElementById('referredBy').value.trim();
             
-            if (!username || !password) {
+            console.log('注册信息：', {
+                phone,
+                code,
+                password: '***',
+                referredBy
+            });
+            
+            if (!phone || !code || !password) {
                 alert('请填写完整信息');
                 return;
             }
@@ -297,19 +309,28 @@
             }
             
             try {
-                const response = await fetch('/register', {
+                const requestData = { 
+                    phone, 
+                    code,
+                    password,
+                    referredBy: referredBy || undefined 
+                };
+                console.log('发送注册请求：', {
+                    ...requestData,
+                    password: '***'
+                });
+                
+                const response = await fetch('/verify_code', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ 
-                        username, 
-                        password,
-                        referredBy: referredBy || null 
-                    })
+                    body: JSON.stringify(requestData)
                 });
                 
                 const result = await response.json();
+                console.log('注册响应：', result);
+                
                 if (result.success) {
                     alert('注册成功！');
                     switchTab('login');
@@ -317,6 +338,7 @@
                     alert(result.message);
                 }
             } catch (error) {
+                console.error('注册错误：', error);
                 alert('注册失败');
             }
         }
@@ -374,11 +396,11 @@
         }
 
         async function login() {
-            const username = document.getElementById('loginUsername').value;
+            const phone = document.getElementById('loginPhone').value;
             const password = document.getElementById('loginPassword').value;
             
-            if (!username || !password) {
-                alert('请输入用户名和密码');
+            if (!phone || !password) {
+                alert('请输入手机号和密码');
                 return;
             }
             
@@ -388,7 +410,7 @@
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ username, password })
+                    body: JSON.stringify({ phone, password })
                 });
                 
                 const result = await response.json();
@@ -405,7 +427,7 @@
             }
         }
 
-        // 添加处理发票的函数
+        // 加处理发票的函数
         async function processInvoices() {
             const formData = new FormData(document.getElementById('invoiceForm'));
             const resultDiv = document.getElementById('result');
@@ -490,6 +512,30 @@
                     <h3>错误：</h3>
                     <p>处理请求时发生错误</p>
                 `;
+            }
+        }
+
+        // 添加发送验证码功能
+        async function sendCode() {
+            const phone = document.getElementById('phone').value;
+            if (!/^1[3-9]\d{9}$/.test(phone)) {
+                alert('请输入正确的手机号');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/send_code', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ phone })
+                });
+                
+                const result = await response.json();
+                alert(result.message);
+            } catch (error) {
+                alert('发送验证码失败');
             }
         }
     </script>
