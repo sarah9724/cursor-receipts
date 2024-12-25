@@ -1,3 +1,4 @@
+from werkzeug.contrib.fixers import ProxyFix  # 如果使用了代理
 from flask import Flask, render_template, request, jsonify, send_file, session
 from invoice_process import process_invoice, process_multiple_invoices
 import os
@@ -19,6 +20,11 @@ app = Flask(__name__,
     static_url_path='/static'
 )
 app.secret_key = 'your-secret-key'  # 用于session
+
+# 添加性能配置
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 31536000  # 静态文件缓存1年
+app.config['TEMPLATES_AUTO_RELOAD'] = False  # 生产环境关闭模板自动重载
+app.wsgi_app = ProxyFix(app.wsgi_app)  # 如果使用了代理
 
 class PaymentControl:
     def __init__(self):
@@ -429,5 +435,15 @@ def get_user_info():
             'message': str(e)
         })
 
+@app.before_request
+def before_request():
+    logger.info(f"Incoming request: {request.method} {request.path}")
+
+@app.after_request
+def after_request(response):
+    logger.info(f"Request completed: {response.status_code}")
+    return response
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True) 
+    # 使用生产环境配置
+    app.run(host='0.0.0.0', port=5000, threaded=True) 
