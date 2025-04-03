@@ -1,0 +1,11 @@
+name = "invoice-tool"
+type = "webpack"
+account_id = ""  # 需要填写Cloudflare账号ID
+workers_dev = true
+route = ""
+zone_id = ""  # 如果有自定义域名，需要填写
+compatibility_date = "2023-03-01"
+
+[site]
+bucket = "./static"  # 静态文件目录
+entry-point = "workers-site" 
